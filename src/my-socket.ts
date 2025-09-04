@@ -1,4 +1,4 @@
-import { WebSocketServer, WebSocket } from 'ws';
+import { WebSocketServer, WebSocket, RawData } from 'ws';
 import http from 'http';
 
 const debug = true;
@@ -7,23 +7,26 @@ const clog = (messages: unknown) => {
     if(debug) console.log(messages);
 }
 
-type Context = {
+export type Context = {
     ws: WebSocket,
     req: http.IncomingMessage,
     data: Map<any, any>
 }
 
-type HandlerType = (c: Context) => Promise<void | 1>
+export type HandlerType = (c: Context) => Promise<void | 1>
 
 type CatchHandlerType<T = unknown | any> = ((err: T, ws: WebSocket) => void) | undefined;
 
+//Messages
+type MessageContext = {
+    ws: WebSocket,
+    req: http.IncomingMessage,
+    message: RawData
+}
+type MessageHandlerType = (c: MessageContext) => Promise<void | 1>;
+
 /**
  * @example
- * import http from 'http';
- * 
- * let server = http.createServer();
- * export let wss = new WebSocketServer({ server });
- * 
  * const mySocket = new MySocket();
  * 
  * mySocket.request('/manager', async (c)=> {
@@ -48,60 +51,78 @@ type CatchHandlerType<T = unknown | any> = ((err: T, ws: WebSocket) => void) | u
  *  ws.close()
  * }
  * 
- * mySocket.connect(wss);
+ * mySocket.connect(wss); 
  */
 export class MySocket {
-    // Хендлеры впринципе поняно о чем речь
-    private handlers :HandlerType[][] = [];
     private wss: WebSocketServer | null = null;
+    // Хендлеры впринципе поняно о чем речь
+    private handlers: HandlerType[][] = [];
+    private messages: MessageHandlerType[] = [];
 
     // И так понятно)
     public catch: CatchHandlerType;
 
     constructor() {}
 
-    // Он в конце, ни то хендлеров подписанных после него не увидит
-    connect(wss: WebSocketServer) {
-        if(this.wss) {
-            this.wss = wss;
-        
-            this.wss.on("connection", async (ws, req) => {
-                try {
-                    for(const callback of this.handlers) {
-
-                        // data это те данные которых можно вызывать между хендлерами
-                        const data = new Map();
-
-                        for(const c of callback) {
-                            const b = await c({ws, req, data});
-
-                            if(b === 1) {
-                                break;
-                            }
-                        }
-                    }
-                } catch(err) {
-
-                    return this.catch 
-                        ? this.catch(err, ws)
-                        : console.error(err);
-                }
-            })
-        }
-    }
-
+    
     // До connect()
     request(url: string, ...handlers: HandlerType[]) {
         handlers.unshift(this.checkBefore(url));
-        handlers.push(this.checkAfter());
         this.handlers.push(handlers);
+        handlers.push(this.checkAfter());
+    }
+    
+    // До connect()
+    message(message: MessageHandlerType) {
+        this.messages.push(message);
+    }
+    
+    // Core/Ядро
+
+    // Он в конце, ни то хендлеров подписанных после него не увидит
+    connect(wss: WebSocketServer) {
+        this.wss = wss;
+
+        this.wss.on("connection", async (ws, req) => {
+            try {
+                for(const callback of this.handlers) {
+
+                    // data это те данные которых можно вызывать между хендлерами
+                    const data = new Map();
+
+                    for(const c of callback) {
+                        const b = await c({ws, req, data});
+
+                        if(b === 1) {
+                            break;
+                        }
+                    }
+                }
+
+                ws.on('message', async (message) => {
+                    for(const callback of this.messages) {
+                        const b = await callback({ws, req, message});
+                        if(b === 1) {
+                            break;
+                        }
+                    }
+                });
+            } catch(err) {
+
+                return this.catch 
+                    ? this.catch(err, ws)
+                    : console.error(err);
+            }
+        })
     }
 
     // Перед всеми хендлерами
     private checkBefore(url: string) {
         const result: HandlerType = async ({ws, req, data}) => {
 
+            clog(`* Новый WS запрос на ${req.url}, проверка на ${url}`);
             if(url.includes(':')) {
+                clog('* Обнаружен параметр в URL');
                 const customUrl = url.split('/');
                 const requestUrl = req.url?.split('/');
 
@@ -137,6 +158,7 @@ export class MySocket {
     // После все хендлеров
     private checkAfter() {
         const result: HandlerType = async (c) => {
+            return;
         };
 
         return result;
