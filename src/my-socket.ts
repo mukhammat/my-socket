@@ -1,7 +1,7 @@
 import { WebSocketServer, WebSocket, RawData } from 'ws';
 import http from 'http';
 
-const debug = true;
+const debug = false;
 
 const clog = (messages: unknown) => {
     if(debug) console.log(messages);
@@ -27,7 +27,13 @@ type MessageHandlerType = (c: MessageContext) => Promise<void | 1>;
 
 /**
  * @example
- * const mySocket = new MySocket();
+ * import { WebSocketServer } from "ws";
+ * import { MySocket } from "./my-socket.js";
+ * import { createServer } from 'http'
+ * 
+ * const server = createServer();
+ * const wss = new WebSocketServer({ server });
+ * const mySocket = new MySocket(wss);
  * 
  * mySocket.request('/manager', async (c)=> {
  *  console.log('1');
@@ -51,18 +57,17 @@ type MessageHandlerType = (c: MessageContext) => Promise<void | 1>;
  *  ws.close()
  * }
  * 
- * mySocket.connect(wss); 
+ * mySocket.connect(); 
  */
 export class MySocket {
-    private wss: WebSocketServer | null = null;
+    constructor(private wss: WebSocketServer) {}
+
     // Хендлеры впринципе поняно о чем речь
+    public catch: CatchHandlerType;
+
     private handlers: HandlerType[][] = [];
     private messages: MessageHandlerType[] = [];
 
-    // И так понятно)
-    public catch: CatchHandlerType;
-
-    constructor() {}
 
     
     // До connect()
@@ -80,8 +85,11 @@ export class MySocket {
     // Core/Ядро
 
     // Он в конце, ни то хендлеров подписанных после него не увидит
-    connect(wss: WebSocketServer) {
-        this.wss = wss;
+    connect() {
+        //this.wss = wss;
+        if(!this.wss) {
+            throw new Error('Вы не указали wss')
+        }
 
         this.wss.on("connection", async (ws, req) => {
             try {

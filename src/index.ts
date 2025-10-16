@@ -1,1 +1,1 @@
-export * from "./my-socket.js";
+export * from "ws";
